@@ -2,7 +2,7 @@
 
 Export Craft CMS entries to a **flat, Excel‑friendly CSV file**: one row per entry, one column per field, Matrix blocks flattened into columns.
 
-Handy for pulling form submissions into Excel, or for sending content to a translation agency.
+Handy for pulling form submissions into Excel, or for sending content to a translation agency — and importing the translations again.
 
 ## Requirements
 
@@ -38,7 +38,30 @@ Users need the *Utilities → CSV Export* permission.
 php craft csv-export/export --section=requests --site=default --status=all --output=requests.csv
 ```
 
-Options: `--section` (required), `--site`, `--status` (`live`, `pending`, `expired`, `disabled`, `all`), `--fields=firstName,lastName,email`, `--limit`, `--output` (defaults to stdout).
+Options: `--section` (required), `--site`, `--status` (`live`, `pending`, `expired`, `disabled`, `all`), `--fields=firstName,lastName,email`, `--limit`, `--output` (defaults to stdout), `--translations` (writes the translation workbook below as .xlsx).
+
+## Translations: export, translate, import
+
+For multi-site installations the plugin offers a round trip for translation agencies.
+
+1. **Export.** On the entries index, filter the entries and choose **Export…** → **Translations (Excel, one sheet per language)**. You get an .xlsx with a READ ME sheet and one sheet per site, named after the site handle. Each sheet has the same rows (entry ids) and columns: `id`, `title` (when translatable) and every translatable text field, Matrix/Neo blocks as `blocks[1].id`, `blocks[1].text`, …, SEO fields as `seo.metaTitle`, `seo.metaDescription`, `seo.socialTitle`, `seo.socialDescription`. Relations, images, dates and non-translatable fields are left out on purpose.
+2. **Translate.** The translator replaces the texts in the sheets of the target languages and leaves the `id` column and header row alone.
+3. **Import.** Go to **Utilities → CSV Import** (or click **Import translations…** next to **Export…** on the entries index), upload the file, check the preview and confirm.
+
+The import is deliberately conservative:
+
+- The source language is never modified.
+- Only translatable, textual fields (and titles) are written. Everything else is reported as skipped.
+- Empty cells are ignored, so nothing is ever cleared.
+- Existing translations are kept: a cell is only written when the target field is still empty or still identical to the source text. Enable **Overwrite existing translations** to write every non-empty cell.
+- Nothing is saved before you confirm the preview.
+
+A single-language `.csv` (from the flat export) can be imported too; pick its language in the form. From the command line:
+
+```bash
+php craft csv-export/import --file=news-translations.xlsx --source=nl          # preview
+php craft csv-export/import --file=news-translations.xlsx --source=nl --apply  # save
+```
 
 ## How values are flattened
 
@@ -74,9 +97,9 @@ Under **Settings → Plugins → CSV Export**:
 
 > The **Export…** dialog on the entries index is rendered by Craft itself and therefore always uses a comma delimiter. Use the utility or the console command when you need semicolons or a BOM.
 
-## Roadmap
+## Languages
 
-- Import: update existing entries from an (edited or translated) CSV, matched on entry ID and field handle.
+The control panel texts are available in English, Dutch, French and German. Add another language by copying `src/translations/nl/csv-export.php`.
 
 ## License
 

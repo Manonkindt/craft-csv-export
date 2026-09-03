@@ -18,15 +18,23 @@ use craft\base\Plugin as BasePlugin;
 use craft\elements\Entry;
 use craft\events\RegisterComponentTypesEvent;
 use craft\events\RegisterElementExportersEvent;
+use craft\helpers\Json;
+use craft\helpers\UrlHelper;
 use craft\services\Utilities;
+use craft\web\View;
 use manonkindt\csvexport\exporters\FlatCsvExporter;
+use manonkindt\csvexport\exporters\TranslationWorkbookExporter;
 use manonkindt\csvexport\models\Settings;
 use manonkindt\csvexport\services\Export;
+use manonkindt\csvexport\services\Import;
 use manonkindt\csvexport\utilities\CsvExportUtility;
+use manonkindt\csvexport\utilities\CsvImportUtility;
+use manonkindt\csvexport\web\assets\importbutton\ImportButtonAsset;
 use yii\base\Event;
 
 /**
  * @property-read Export $export
+ * @property-read Import $import
  * @property-read Settings $settings
  * @method Settings getSettings()
  */
@@ -41,6 +49,7 @@ class Plugin extends BasePlugin
         return [
             'components' => [
                 'export' => Export::class,
+                'import' => Import::class,
             ],
         ];
     }
@@ -61,6 +70,7 @@ class Plugin extends BasePlugin
             Element::EVENT_REGISTER_EXPORTERS,
             static function(RegisterElementExportersEvent $event) {
                 $event->exporters[] = FlatCsvExporter::class;
+                $event->exporters[] = TranslationWorkbookExporter::class;
             }
         );
 
@@ -70,8 +80,31 @@ class Plugin extends BasePlugin
             Utilities::EVENT_REGISTER_UTILITIES,
             static function(RegisterComponentTypesEvent $event) {
                 $event->types[] = CsvExportUtility::class;
+                $event->types[] = CsvImportUtility::class;
             }
         );
+
+        // "Import translations…" button next to "Export…" on the entries index
+        $request = Craft::$app->getRequest();
+        if ($request->getIsCpRequest() && !$request->getIsConsoleRequest() && $request->getSegment(1) === 'entries') {
+            Event::on(
+                View::class,
+                View::EVENT_BEFORE_RENDER_PAGE_TEMPLATE,
+                static function() {
+                    $user = Craft::$app->getUser()->getIdentity();
+                    if (!$user || !$user->can('utility:' . CsvImportUtility::id())) {
+                        return;
+                    }
+                    $view = Craft::$app->getView();
+                    $view->registerAssetBundle(ImportButtonAsset::class);
+                    $view->registerJs('window.csvExportImportButton = ' . Json::encode([
+                        'url' => UrlHelper::cpUrl('utilities/' . CsvImportUtility::id()),
+                        'label' => Craft::t('csv-export', 'Import translations…'),
+                        'title' => Craft::t('csv-export', 'Import a translated Excel or CSV file'),
+                    ]) . ';', View::POS_HEAD);
+                }
+            );
+        }
     }
 
     protected function createSettingsModel(): ?Model

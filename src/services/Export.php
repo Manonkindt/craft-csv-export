@@ -18,6 +18,7 @@ use craft\fields\data\LinkData;
 use craft\fields\data\MultiOptionsFieldData;
 use craft\fields\data\OptionData;
 use craft\fields\Matrix as MatrixField;
+use craft\fields\PlainText;
 use craft\helpers\Json;
 use craft\helpers\MoneyHelper;
 use DateTimeInterface;
@@ -29,6 +30,11 @@ use yii\base\Arrayable;
 
 /**
  * Builds flat rows (one per entry, one column per field) and writes CSV.
+ *
+ * Two modes:
+ * - default: every field, formatted according to the plugin settings
+ * - translation: only translatable, textual fields, nested elements with their ids,
+ *   so the table can be handed to a translator and imported again
  */
 class Export extends Component
 {
@@ -37,16 +43,17 @@ class Export extends Component
      *
      * @param iterable<Entry> $entries
      * @param string[]|null $fieldHandles Custom field handles to include (null = all fields in the layout)
+     * @param array{translation?: bool} $options
      * @return array{0: string[], 1: array<int, array<string, string>>} [$columns, $rows]
      */
-    public function buildTable(iterable $entries, ?array $fieldHandles = null): array
+    public function buildTable(iterable $entries, ?array $fieldHandles = null, array $options = []): array
     {
         $settings = $this->settings();
         $columns = [];
         $rows = [];
 
         foreach ($entries as $entry) {
-            $row = $this->buildRow($entry, $fieldHandles, $settings);
+            $row = $this->buildRow($entry, $fieldHandles, $settings, $options);
             $this->mergeColumns($columns, array_keys($row));
             $rows[] = $row;
         }
@@ -65,37 +72,74 @@ class Export extends Component
     }
 
     /**
+     * Builds the translation table for a set of entries in a given site.
+     * Entries that don't exist in that site are left out.
+     *
+     * @param Entry[] $entries Entries (from any site)
+     * @return array{0: string[], 1: array<int, array<string, string>>}
+     */
+    public function buildTranslationTable(array $entries, int $siteId): array
+    {
+        $ids = array_values(array_unique(array_map(fn(Entry $e) => $e->id, $entries)));
+        if (!$ids) {
+            return [['id'], []];
+        }
+
+        $siteEntries = Entry::find()
+            ->id($ids)
+            ->siteId($siteId)
+            ->status(null)
+            ->fixedOrder()
+            ->all();
+
+        return $this->buildTable($siteEntries, null, ['translation' => true]);
+    }
+
+    /**
      * Builds a single flat row for an entry.
      *
+     * @param array{translation?: bool} $options
      * @return array<string, string>
      */
-    public function buildRow(Entry $entry, ?array $fieldHandles, ?Settings $settings = null): array
+    public function buildRow(Entry $entry, ?array $fieldHandles, ?Settings $settings = null, array $options = []): array
     {
         $settings ??= $this->settings();
+        $translation = !empty($options['translation']);
         $row = [];
 
-        foreach ($settings->metaColumns as $attribute) {
-            $row[$attribute] = $this->metaValue($entry, $attribute, $settings);
+        if ($translation) {
+            $row['id'] = (string)$entry->id;
+            if ($entry->getIsTitleTranslatable()) {
+                $row['title'] = (string)$entry->title;
+            }
+        } else {
+            foreach ($settings->metaColumns as $attribute) {
+                $row[$attribute] = $this->metaValue($entry, $attribute, $settings);
+            }
         }
 
         foreach ($this->customFields($entry) as $field) {
             if ($fieldHandles !== null && !in_array($field->handle, $fieldHandles, true)) {
                 continue;
             }
-            $label = $this->columnLabel($field, $settings);
+            if ($translation && !$field->getIsTranslatable($entry)) {
+                continue;
+            }
+
+            $label = $translation ? $field->handle : $this->columnLabel($field, $settings);
             $value = $entry->getFieldValue($field->handle);
-            $columnsMode = $settings->matrixMode === Settings::MATRIX_MODE_COLUMNS;
+            $columnsMode = $translation || $settings->matrixMode === Settings::MATRIX_MODE_COLUMNS;
 
             // Content Block: a single nested element
             if ($columnsMode && $field instanceof ContentBlockField && $value instanceof ElementInterface) {
-                $row += $this->nestedColumns($value, $label, $settings, false);
+                $row += $this->nestedColumns($value, $label, $settings, false, $options);
                 continue;
             }
 
             // SEO plugins (SEO Fields, SEOmatic, Ether SEO): split into title/description/social columns
             $seoColumns = $this->seoColumns($value, $label);
             if ($seoColumns !== null) {
-                $row += $seoColumns;
+                $row += $translation ? $this->translatableSeoColumns($seoColumns) : $seoColumns;
                 continue;
             }
 
@@ -105,11 +149,21 @@ class Export extends Component
                 if ($columnsMode && $this->isNestedList($elements)) {
                     foreach ($elements as $i => $nested) {
                         $prefix = sprintf('%s[%d]', $label, $i + 1);
-                        $row += $this->nestedColumns($nested, $prefix, $settings, true);
+                        if ($translation) {
+                            $row["$prefix.id"] = (string)$nested->id;
+                        }
+                        $row += $this->nestedColumns($nested, $prefix, $settings, !$translation, $options);
                     }
                     continue;
                 }
+                if ($translation) {
+                    continue; // relations can't be translated
+                }
                 $row[$label] = $this->formatElements($elements, $field, $settings);
+                continue;
+            }
+
+            if ($translation && !$this->isTextual($field, $value)) {
                 continue;
             }
 
@@ -164,100 +218,6 @@ class Export extends Component
             }
         }
         return $fields;
-    }
-
-    /**
-     * Merges a row's keys into the ordered column list, inserting new keys right
-     * after the key that preceded them in the row (keeps Matrix columns grouped).
-     *
-     * @param string[] $columns
-     * @param string[] $rowKeys
-     */
-    protected function mergeColumns(array &$columns, array $rowKeys): void
-    {
-        $previous = null;
-        foreach ($rowKeys as $key) {
-            if (!in_array($key, $columns, true)) {
-                $position = $previous !== null ? array_search($previous, $columns, true) : false;
-                if ($position === false) {
-                    $columns[] = $key;
-                } else {
-                    array_splice($columns, $position + 1, 0, [$key]);
-                }
-            }
-            $previous = $key;
-        }
-    }
-
-    // -------------------------------------------------------------------------
-
-    protected function settings(): Settings
-    {
-        return Plugin::getInstance()->getSettings();
-    }
-
-    /**
-     * @return FieldInterface[]
-     */
-    protected function customFields(ElementInterface $element): array
-    {
-        $layout = $element->getFieldLayout();
-        return $layout ? $layout->getCustomFields() : [];
-    }
-
-    protected function columnLabel(FieldInterface $field, Settings $settings): string
-    {
-        return $settings->columnLabels === Settings::LABELS_NAME ? $field->name : $field->handle;
-    }
-
-    protected function metaValue(Entry $entry, string $attribute, Settings $settings): string
-    {
-        return match ($attribute) {
-            'id' => (string)$entry->id,
-            'uid' => (string)$entry->uid,
-            'title' => (string)$entry->title,
-            'slug' => (string)$entry->slug,
-            'uri' => (string)$entry->uri,
-            'url' => (string)$entry->getUrl(),
-            'section' => (string)($entry->getSection()?->handle ?? ''),
-            'type' => $entry->getType()->handle,
-            'site' => $entry->getSite()->handle,
-            'status' => (string)$entry->getStatus(),
-            'author' => (string)($entry->getAuthor()?->email ?? ''),
-            'postDate' => $this->formatDate($entry->postDate, $settings),
-            'expiryDate' => $this->formatDate($entry->expiryDate, $settings),
-            'dateCreated' => $this->formatDate($entry->dateCreated, $settings),
-            'dateUpdated' => $this->formatDate($entry->dateUpdated, $settings),
-            default => '',
-        };
-    }
-
-    /**
-     * Flattens one nested element (Matrix entry / Content Block) into prefixed columns.
-     *
-     * @return array<string, string>
-     */
-    protected function nestedColumns(ElementInterface $nested, string $prefix, Settings $settings, bool $withType): array
-    {
-        $columns = [];
-
-        if ($withType) {
-            $type = $this->nestedTypeHandle($nested);
-            if ($type !== null) {
-                $columns["$prefix.type"] = $type;
-            }
-            if ($this->nestedHasTitle($nested)) {
-                $columns["$prefix.title"] = (string)$nested->title;
-            }
-        }
-
-        foreach ($this->customFields($nested) as $field) {
-            $label = $this->columnLabel($field, $settings);
-            // Nested Matrix inside Matrix: fall back to readable text to keep the table sane
-            $columns["$prefix.$label"] = $this->formatValue($nested->getFieldValue($field->handle), $field, $settings);
-        }
-
-        return $columns;
     }
 
     /**
@@ -346,6 +306,149 @@ class Export extends Component
     }
 
     /**
+     * Whether a field value is plain or rich text that a translator can edit.
+     */
+    public function isTextual(?FieldInterface $field, mixed $value): bool
+    {
+        if (is_string($value)) {
+            return true;
+        }
+        if ($value === null && $field !== null) {
+            // Empty text fields still deserve a column
+            $class = strtolower(get_class($field));
+            return $field instanceof PlainText
+                || str_contains($class, 'ckeditor')
+                || str_contains($class, 'redactor')
+                || str_contains($class, 'vizy');
+        }
+        if (is_object($value) && method_exists($value, '__toString')) {
+            return !($value instanceof ColorData
+                || $value instanceof LinkData
+                || $value instanceof OptionData
+                || $value instanceof Money
+                || $value instanceof DateTimeInterface);
+        }
+        return false;
+    }
+
+    // -------------------------------------------------------------------------
+
+    protected function settings(): Settings
+    {
+        return Plugin::getInstance()->getSettings();
+    }
+
+    /**
+     * @return FieldInterface[]
+     */
+    protected function customFields(ElementInterface $element): array
+    {
+        $layout = $element->getFieldLayout();
+        return $layout ? $layout->getCustomFields() : [];
+    }
+
+    protected function columnLabel(FieldInterface $field, Settings $settings): string
+    {
+        return $settings->columnLabels === Settings::LABELS_NAME ? $field->name : $field->handle;
+    }
+
+    /**
+     * Merges a row's keys into the ordered column list, inserting new keys right
+     * after the key that preceded them in the row (keeps Matrix columns grouped).
+     *
+     * @param string[] $columns
+     * @param string[] $rowKeys
+     */
+    protected function mergeColumns(array &$columns, array $rowKeys): void
+    {
+        $previous = null;
+        foreach ($rowKeys as $key) {
+            if (!in_array($key, $columns, true)) {
+                $position = $previous !== null ? array_search($previous, $columns, true) : false;
+                if ($position === false) {
+                    $columns[] = $key;
+                } else {
+                    array_splice($columns, $position + 1, 0, [$key]);
+                }
+            }
+            $previous = $key;
+        }
+    }
+
+    protected function metaValue(Entry $entry, string $attribute, Settings $settings): string
+    {
+        return match ($attribute) {
+            'id' => (string)$entry->id,
+            'uid' => (string)$entry->uid,
+            'title' => (string)$entry->title,
+            'slug' => (string)$entry->slug,
+            'uri' => (string)$entry->uri,
+            'url' => (string)$entry->getUrl(),
+            'section' => (string)($entry->getSection()?->handle ?? ''),
+            'type' => $entry->getType()->handle,
+            'site' => $entry->getSite()->handle,
+            'status' => (string)$entry->getStatus(),
+            'author' => (string)($entry->getAuthor()?->email ?? ''),
+            'postDate' => $this->formatDate($entry->postDate, $settings),
+            'expiryDate' => $this->formatDate($entry->expiryDate, $settings),
+            'dateCreated' => $this->formatDate($entry->dateCreated, $settings),
+            'dateUpdated' => $this->formatDate($entry->dateUpdated, $settings),
+            default => '',
+        };
+    }
+
+    /**
+     * Flattens one nested element (Matrix entry / Neo block / Content Block) into prefixed columns.
+     *
+     * @param array{translation?: bool} $options
+     * @return array<string, string>
+     */
+    protected function nestedColumns(ElementInterface $nested, string $prefix, Settings $settings, bool $withType, array $options = []): array
+    {
+        $translation = !empty($options['translation']);
+        $columns = [];
+
+        if ($withType) {
+            $type = $this->nestedTypeHandle($nested);
+            if ($type !== null) {
+                $columns["$prefix.type"] = $type;
+            }
+        }
+
+        if ($this->nestedHasTitle($nested) && (!$translation || $nested->getIsTitleTranslatable())) {
+            $columns["$prefix.title"] = (string)$nested->title;
+        }
+
+        foreach ($this->customFields($nested) as $field) {
+            if ($translation && !$field->getIsTranslatable($nested)) {
+                continue;
+            }
+            $label = $translation ? $field->handle : $this->columnLabel($field, $settings);
+            $value = $nested->getFieldValue($field->handle);
+
+            $seoColumns = $this->seoColumns($value, "$prefix.$label");
+            if ($seoColumns !== null) {
+                $columns += $translation ? $this->translatableSeoColumns($seoColumns) : $seoColumns;
+                continue;
+            }
+
+            if ($translation) {
+                if ($value instanceof ElementQueryInterface || $value instanceof ElementCollection || $value instanceof ElementInterface) {
+                    continue; // nested-in-nested and relations are not part of the translation table
+                }
+                if (!$this->isTextual($field, $value)) {
+                    continue;
+                }
+            }
+
+            // Nested Matrix inside Matrix: fall back to readable text to keep the table sane
+            $columns["$prefix.$label"] = $this->formatValue($value, $field, $settings);
+        }
+
+        return $columns;
+    }
+
+    /**
      * @return ElementInterface[]
      */
     protected function nestedElements(mixed $value): array
@@ -392,7 +495,7 @@ class Export extends Component
      *
      * @return array<string, string>|null null when the value is not a known SEO value
      */
-    protected function seoColumns(mixed $value, string $prefix): ?array
+    public function seoColumns(mixed $value, string $prefix): ?array
     {
         if (!is_object($value)) {
             return null;
@@ -444,6 +547,17 @@ class Export extends Component
         }
 
         return null;
+    }
+
+    /**
+     * Keeps only the SEO columns a translator can edit (no images).
+     *
+     * @param array<string, string> $seoColumns
+     * @return array<string, string>
+     */
+    protected function translatableSeoColumns(array $seoColumns): array
+    {
+        return array_filter($seoColumns, fn(string $key) => !str_ends_with($key, 'Image'), ARRAY_FILTER_USE_KEY);
     }
 
     /**

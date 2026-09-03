@@ -1,0 +1,100 @@
+{% extends '_layouts/cp.twig' %}
+{% set title = 'CSV Import'|t('csv-export') ~ ' — ' ~ 'Preview'|t('csv-export') %}
+{% set crumbs = [
+    { label: 'Utilities'|t('app'), url: url('utilities') },
+    { label: 'CSV Import'|t('csv-export'), url: utilityUrl },
+] %}
+{% set fullPageForm = false %}
+
+{% set reasonLabels = {
+    'empty': 'Empty cell'|t('csv-export'),
+    'unchanged': 'Unchanged'|t('csv-export'),
+    'already-translated': 'Already translated (kept)'|t('csv-export'),
+    'not-translatable': 'Field is not translatable'|t('csv-export'),
+    'unsupported': 'Field type not supported'|t('csv-export'),
+    'unknown-field': 'Unknown column'|t('csv-export'),
+    'missing-nested': 'Block does not exist in this language'|t('csv-export'),
+} %}
+{% set sheetReasons = {
+    'no-site': 'No site matches this sheet name'|t('csv-export'),
+    'source': 'Source language, not imported'|t('csv-export'),
+    'duplicate': 'Duplicate sheet for the same site'|t('csv-export'),
+} %}
+
+{% block content %}
+    <p>{{ 'File: {file}. Source language: {site}.'|t('csv-export', { file: plan.file, site: sourceSite ? sourceSite.name : '?' }) }}
+        {% if plan.overwrite %}<strong>{{ 'Existing translations will be overwritten.'|t('csv-export') }}</strong>{% endif %}</p>
+
+    {% if plan.skippedSheets is not empty %}
+        <ul class="light" style="margin-bottom: 1.5em;">
+            {% for s in plan.skippedSheets %}
+                <li>{{ 'Sheet “{sheet}”: {reason}'|t('csv-export', { sheet: s.sheet, reason: sheetReasons[s.reason] ?? s.reason }) }}</li>
+            {% endfor %}
+        </ul>
+    {% endif %}
+
+    {% if plan.sites is empty %}
+        <p class="error with-icon">{{ 'No sheet in this file matches a language of your site. Sheet names must equal a site handle (e.g. “fr”), or choose the language for CSV files.'|t('csv-export') }}</p>
+    {% endif %}
+
+    {% for sheet in plan.sites %}
+        <h2>{{ sheet.siteName }} <span class="light">({{ sheet.sheet }})</span></h2>
+
+        {% if sheet.error == 'no-id-column' %}
+            <p class="error with-icon">{{ 'This sheet has no “id” column and is skipped.'|t('csv-export') }}</p>
+        {% else %}
+            <p>
+                {{ '{rows} rows, {changes} texts to import.'|t('csv-export', { rows: sheet.rows, changes: sheet.changes|length }) }}
+                {% if sheet.missing is not empty %}
+                    <span class="warning with-icon">{{ '{count} entries do not exist in this language and are skipped: {ids}'|t('csv-export', { count: sheet.missing|length, ids: sheet.missing|slice(0, 20)|join(', ') ~ (sheet.missing|length > 20 ? '…' : '') }) }}</span>
+                {% endif %}
+            </p>
+
+            {% if sheet.skipped is not empty %}
+                <p class="light">{{ 'Skipped cells:'|t('csv-export') }}
+                    {% for reason, count in sheet.skipped %}{{ reasonLabels[reason] ?? reason }} ({{ count }}){{ not loop.last ? ', ' }}{% endfor %}
+                </p>
+            {% endif %}
+
+            {% if sheet.changes is not empty %}
+                <div class="tablepane" style="margin-bottom: 2em;">
+                    <table class="data fullwidth">
+                        <thead>
+                            <tr>
+                                <th>{{ 'Entry'|t('app') }}</th>
+                                <th>{{ 'Column'|t('csv-export') }}</th>
+                                <th>{{ 'Current'|t('csv-export') }}</th>
+                                <th>{{ 'New'|t('csv-export') }}</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for change in sheet.changes|slice(0, previewLimit) %}
+                                <tr>
+                                    <td class="light">#{{ change.entryId }} {{ change.entryTitle }}</td>
+                                    <td><code>{{ change.column }}</code></td>
+                                    <td class="light">{{ change.old|striptags|slice(0, 120) }}{{ change.old|length > 120 ? '…' }}</td>
+                                    <td>{{ change.new|striptags|slice(0, 120) }}{{ change.new|length > 120 ? '…' }}</td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                    {% if sheet.changes|length > previewLimit %}
+                        <p class="light">{{ '… and {count} more.'|t('csv-export', { count: sheet.changes|length - previewLimit }) }}</p>
+                    {% endif %}
+                </div>
+            {% endif %}
+        {% endif %}
+    {% endfor %}
+
+    <form method="post" accept-charset="UTF-8">
+        {{ csrfInput() }}
+        {{ actionInput('csv-export/import/apply') }}
+        {{ hiddenInput('token', plan.token) }}
+        <div class="buttons">
+            {% if totalChanges > 0 %}
+                <button type="submit" class="btn submit">{{ 'Import {count} translations'|t('csv-export', { count: totalChanges }) }}</button>
+            {% endif %}
+            <a href="{{ utilityUrl }}" class="btn">{{ totalChanges > 0 ? 'Cancel'|t('app') : 'Back'|t('app') }}</a>
+        </div>
+    </form>
+{% endblock %}

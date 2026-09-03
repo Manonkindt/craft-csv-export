@@ -1,0 +1,60 @@
+{% import '_includes/forms.twig' as forms %}
+
+<div class="readable" style="max-width: 48em;">
+    <p class="warning with-icon"><strong>{{ 'This import is meant for translations only.'|t('csv-export') }}</strong>
+        {{ 'It fills in translatable text fields in the other languages of your site. The source language is never changed, empty cells are ignored, and existing translations are kept unless you choose to overwrite them. Nothing is saved until you confirm the preview.'|t('csv-export') }}</p>
+
+    <h2>{{ 'How it works'|t('csv-export') }}</h2>
+    <ol>
+        <li>{{ 'Go to **Entries**, filter the entries you want translated and click **Export…** at the bottom of the list.'|t('csv-export')|md(inlineOnly=true) }}</li>
+        <li>{{ 'Choose the export type **Translations (Excel, one sheet per language)**. You get an Excel file with a READ ME sheet and one sheet per language, each with the same entries and columns.'|t('csv-export')|md(inlineOnly=true) }}</li>
+        <li>{{ 'Send the file to your translator. They translate the texts in the sheets of the target languages and leave the id column and headers untouched.'|t('csv-export') }}</li>
+        <li>{{ 'Upload the returned file below, check the preview and confirm.'|t('csv-export') }}</li>
+    </ol>
+</div>
+
+{% if not multiSite %}
+    <p class="warning with-icon">{{ 'This installation has only one site. The translation import needs at least two sites (languages).'|t('csv-export') }}</p>
+{% endif %}
+
+<form method="post" action="{{ actionUrl('csv-export/import/preview') }}" enctype="multipart/form-data" accept-charset="UTF-8">
+    {{ csrfInput() }}
+
+    {{ forms.field({
+        label: 'File'|t('csv-export'),
+        instructions: 'An .xlsx workbook from the “Translations” export (one sheet per language) or a .csv file for a single language.'|t('csv-export'),
+        id: 'file',
+        required: true,
+    }, '<input type="file" id="file" name="file" accept=".xlsx,.csv" required>') }}
+
+    {{ forms.selectField({
+        label: 'Source language'|t('csv-export'),
+        instructions: 'The language the texts were translated from. This site is never modified.'|t('csv-export'),
+        id: 'sourceSiteId',
+        name: 'sourceSiteId',
+        options: sites,
+        value: primarySiteId,
+    }) }}
+
+    {{ forms.selectField({
+        label: 'Language for CSV files'|t('csv-export'),
+        instructions: 'Only used for .csv files, which have no sheet name to tell the language from.'|t('csv-export'),
+        id: 'fallbackSiteId',
+        name: 'fallbackSiteId',
+        options: [{ label: '—', value: '' }]|merge(sites),
+        value: '',
+    }) }}
+
+    {{ forms.lightswitchField({
+        label: 'Overwrite existing translations'|t('csv-export'),
+        instructions: 'Off (recommended): only fields that are still empty or still identical to the source text are filled in. On: every non-empty cell in the file is written.'|t('csv-export'),
+        id: 'overwrite',
+        name: 'overwrite',
+        on: false,
+    }) }}
+
+    <div class="buttons">
+        <button type="submit" class="btn submit">{{ 'Preview import'|t('csv-export') }}</button>
+        <span class="light">{{ 'Nothing is saved yet.'|t('csv-export') }}</span>
+    </div>
+</form>

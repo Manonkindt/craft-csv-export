@@ -6,6 +6,7 @@ use Craft;
 use craft\console\Controller;
 use craft\elements\Entry;
 use craft\helpers\Console;
+use manonkindt\csvexport\exporters\TranslationWorkbookExporter;
 use manonkindt\csvexport\Plugin;
 use yii\console\ExitCode;
 
@@ -15,6 +16,7 @@ use yii\console\ExitCode;
  * Example:
  *   php craft csv-export/export --section=news --site=default --status=live > news.csv
  *   php craft csv-export/export --section=requests --fields=firstName,lastName,email --output=requests.csv
+ *   php craft csv-export/export --section=news --translations --output=news-translations.xlsx
  */
 class ExportController extends Controller
 {
@@ -38,9 +40,12 @@ class ExportController extends Controller
     /** @var string|null File to write to (defaults to stdout) */
     public ?string $output = null;
 
+    /** @var bool Export a translation workbook (.xlsx, one sheet per language) instead of a CSV */
+    public bool $translations = false;
+
     public function options($actionID): array
     {
-        return array_merge(parent::options($actionID), ['section', 'site', 'status', 'fields', 'limit', 'output']);
+        return array_merge(parent::options($actionID), ['section', 'site', 'status', 'fields', 'limit', 'output', 'translations']);
     }
 
     public function optionAliases(): array
@@ -87,17 +92,24 @@ class ExportController extends Controller
             $query->limit($this->limit);
         }
 
-        $fieldHandles = $this->fields ? array_filter(array_map('trim', explode(',', $this->fields))) : null;
-
-        $export = Plugin::getInstance()->export;
-        [$columns, $rows] = $export->buildTable($query->all(), $fieldHandles ?: null);
-        $csv = $export->toCsv($columns, $rows);
+        if ($this->translations) {
+            $exporter = new TranslationWorkbookExporter();
+            $exporter->setElementType(Entry::class);
+            $content = $exporter->export($query);
+            $count = (int)$query->count();
+        } else {
+            $fieldHandles = $this->fields ? array_filter(array_map('trim', explode(',', $this->fields))) : null;
+            $export = Plugin::getInstance()->export;
+            [$columns, $rows] = $export->buildTable($query->all(), $fieldHandles ?: null);
+            $content = $export->toCsv($columns, $rows);
+            $count = count($rows);
+        }
 
         if ($this->output) {
-            file_put_contents($this->output, $csv);
-            $this->stdout(sprintf("Exported %d entries to %s\n", count($rows), $this->output), Console::FG_GREEN);
+            file_put_contents($this->output, $content);
+            $this->stdout(sprintf("Exported %d entries to %s\n", $count, $this->output), Console::FG_GREEN);
         } else {
-            $this->stdout($csv);
+            $this->stdout($content);
         }
 
         return ExitCode::OK;

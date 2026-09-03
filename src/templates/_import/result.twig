@@ -1,0 +1,24 @@
+{% extends '_layouts/cp.twig' %}
+{% set title = 'CSV Import'|t('csv-export') ~ ' — ' ~ 'Result'|t('csv-export') %}
+{% set crumbs = [
+    { label: 'Utilities'|t('app'), url: url('utilities') },
+    { label: 'CSV Import'|t('csv-export'), url: utilityUrl },
+] %}
+
+{% block content %}
+    <p>{{ 'Translations imported: {cells} texts in {saved} elements.'|t('csv-export', { cells: result.cells, saved: result.saved }) }}</p>
+
+    {% if result.errors is not empty %}
+        <h2>{{ '{count} elements could not be saved'|t('csv-export', { count: result.errors|length }) }}</h2>
+        <ul class="errors">
+            {% for error in result.errors %}
+                <li>#{{ error.entryId }} {{ error.title }} ({{ error.site }}): {{ error.errors|join(' ') }}</li>
+            {% endfor %}
+        </ul>
+    {% endif %}
+
+    <div class="buttons">
+        <a href="{{ utilityUrl }}" class="btn">{{ 'Import another file'|t('csv-export') }}</a>
+        <a href="{{ url('entries') }}" class="btn">{{ 'Entries'|t('app') }}</a>
+    </div>
+{% endblock %}
