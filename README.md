@@ -53,6 +53,7 @@ Options: `--section` (required), `--site`, `--status` (`live`, `pending`, `expir
 | Link, color, money | URL, hex code, decimal amount |
 | Table, JSON | JSON |
 | Matrix / Content Block | Depends on the *Matrix fields* setting, see below |
+| SEO Fields, SEOmatic, SEO (Ether) | Split into `seo.metaTitle`, `seo.metaDescription`, `seo.socialTitle`, `seo.socialDescription`, `seo.socialImage`; SEOmatic and Ether SEO also get `seo.twitterTitle`, `seo.twitterDescription`, `seo.twitterImage` (SEOmatic: `seo.metaImage` too) |
 
 ### Matrix fields
 

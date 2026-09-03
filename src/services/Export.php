@@ -92,6 +92,13 @@ class Export extends Component
                 continue;
             }
 
+            // SEO plugins (SEO Fields, SEOmatic, Ether SEO): split into title/description/social columns
+            $seoColumns = $this->seoColumns($value, $label);
+            if ($seoColumns !== null) {
+                $row += $seoColumns;
+                continue;
+            }
+
             // Matrix, Neo, … (nested elements) or relations (entries, assets, …)
             if ($value instanceof ElementQueryInterface || $value instanceof ElementCollection) {
                 $elements = $this->nestedElements($value);
@@ -311,6 +318,11 @@ class Export extends Component
             return $this->elementLabel($value);
         }
 
+        $seoColumns = $this->seoColumns($value, 'seo');
+        if ($seoColumns !== null) {
+            return Json::encode($seoColumns);
+        }
+
         // Rich text (CKEditor, Redactor, Vizy…) and other stringable objects
         if (is_object($value) && method_exists($value, '__toString')) {
             $value = (string)$value;
@@ -372,6 +384,106 @@ class Export extends Component
             return $this->formatNestedList($elements, $settings);
         }
         return implode($settings->multiValueSeparator, array_map(fn($el) => $this->elementLabel($el), $elements));
+    }
+
+    /**
+     * Splits the value of a known SEO plugin field into separate columns.
+     * Supports SEO Fields (studioespresso), SEOmatic (nystudio107) and SEO (ether).
+     *
+     * @return array<string, string>|null null when the value is not a known SEO value
+     */
+    protected function seoColumns(mixed $value, string $prefix): ?array
+    {
+        if (!is_object($value)) {
+            return null;
+        }
+
+        if (is_a($value, 'studioespresso\\seofields\\models\\SeoFieldModel')) {
+            return [
+                "$prefix.metaTitle" => (string)($value->metaTitle ?? ''),
+                "$prefix.metaDescription" => (string)($value->metaDescription ?? ''),
+                "$prefix.socialTitle" => (string)($value->facebookTitle ?? ''),
+                "$prefix.socialDescription" => (string)($value->facebookDescription ?? ''),
+                "$prefix.socialImage" => $this->assetUrlFromId($value->facebookImage ?? null),
+            ];
+        }
+
+        if (is_a($value, 'nystudio107\\seomatic\\models\\MetaBundle')) {
+            $vars = $value->metaGlobalVars ?? null;
+            $bundleSettings = $value->metaBundleSettings ?? null;
+            return [
+                "$prefix.metaTitle" => (string)($vars->seoTitle ?? ''),
+                "$prefix.metaDescription" => (string)($vars->seoDescription ?? ''),
+                "$prefix.metaImage" => $this->assetUrlFromId($bundleSettings->seoImageIds ?? null) ?: (string)($vars->seoImage ?? ''),
+                "$prefix.socialTitle" => (string)($vars->ogTitle ?? ''),
+                "$prefix.socialDescription" => (string)($vars->ogDescription ?? ''),
+                "$prefix.socialImage" => $this->assetUrlFromId($bundleSettings->ogImageIds ?? null) ?: (string)($vars->ogImage ?? ''),
+                "$prefix.twitterTitle" => (string)($vars->twitterTitle ?? ''),
+                "$prefix.twitterDescription" => (string)($vars->twitterDescription ?? ''),
+                "$prefix.twitterImage" => $this->assetUrlFromId($bundleSettings->twitterImageIds ?? null) ?: (string)($vars->twitterImage ?? ''),
+            ];
+        }
+
+        if (is_a($value, 'ether\\seo\\models\\data\\SeoData')) {
+            $title = $value->titleRaw ?? '';
+            if (is_array($title)) {
+                $title = implode(' ', array_filter(array_map('strval', $title)));
+            }
+            $facebook = $this->etherSocial($value->social['facebook'] ?? null);
+            $twitter = $this->etherSocial($value->social['twitter'] ?? null);
+            return [
+                "$prefix.metaTitle" => (string)$title,
+                "$prefix.metaDescription" => (string)($value->descriptionRaw ?? ''),
+                "$prefix.socialTitle" => $facebook['title'],
+                "$prefix.socialDescription" => $facebook['description'],
+                "$prefix.socialImage" => $facebook['image'],
+                "$prefix.twitterTitle" => $twitter['title'],
+                "$prefix.twitterDescription" => $twitter['description'],
+                "$prefix.twitterImage" => $twitter['image'],
+            ];
+        }
+
+        return null;
+    }
+
+    /**
+     * Normalises an Ether SEO social entry (SocialData object or raw array).
+     *
+     * @return array{title: string, description: string, image: string}
+     */
+    protected function etherSocial(mixed $social): array
+    {
+        $get = static fn(string $key) => is_object($social) ? ($social->$key ?? null) : (is_array($social) ? ($social[$key] ?? null) : null);
+        $image = $get('imageId') ?? $get('image');
+        if (is_array($image) && isset($image[0]['id'])) {
+            $image = $image[0]['id'];
+        }
+        return [
+            'title' => (string)($get('title') ?? ''),
+            'description' => (string)($get('description') ?? ''),
+            'image' => $this->assetUrlFromId($image),
+        ];
+    }
+
+    /**
+     * Resolves an asset id (or an array of ids, or an Asset) to its URL.
+     */
+    protected function assetUrlFromId(mixed $id): string
+    {
+        if ($id instanceof Asset) {
+            return $this->elementLabel($id);
+        }
+        if (is_array($id)) {
+            $id = $id[0] ?? null;
+            if ($id instanceof Asset) {
+                return $this->elementLabel($id);
+            }
+        }
+        if (!is_numeric($id) || (int)$id <= 0) {
+            return '';
+        }
+        $asset = Craft::$app->getAssets()->getAssetById((int)$id);
+        return $asset ? $this->elementLabel($asset) : '';
     }
 
     protected function nestedTypeHandle(ElementInterface $nested): ?string
