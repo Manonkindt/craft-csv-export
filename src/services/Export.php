@@ -6,6 +6,7 @@ use Craft;
 use craft\base\Component;
 use craft\base\ElementInterface;
 use craft\base\FieldInterface;
+use craft\base\NestedElementInterface;
 use craft\elements\Asset;
 use craft\elements\db\ElementQueryInterface;
 use craft\elements\ElementCollection;
@@ -82,17 +83,25 @@ class Export extends Component
             }
             $label = $this->columnLabel($field, $settings);
             $value = $entry->getFieldValue($field->handle);
+            $columnsMode = $settings->matrixMode === Settings::MATRIX_MODE_COLUMNS;
 
-            if ($field instanceof MatrixField && $settings->matrixMode === Settings::MATRIX_MODE_COLUMNS) {
-                foreach ($this->nestedElements($value) as $i => $nested) {
-                    $prefix = sprintf('%s[%d]', $label, $i + 1);
-                    $row += $this->nestedColumns($nested, $prefix, $settings, true);
-                }
+            // Content Block: a single nested element
+            if ($columnsMode && $field instanceof ContentBlockField && $value instanceof ElementInterface) {
+                $row += $this->nestedColumns($value, $label, $settings, false);
                 continue;
             }
 
-            if ($field instanceof ContentBlockField && $value instanceof ElementInterface && $settings->matrixMode === Settings::MATRIX_MODE_COLUMNS) {
-                $row += $this->nestedColumns($value, $label, $settings, false);
+            // Matrix, Neo, … (nested elements) or relations (entries, assets, …)
+            if ($value instanceof ElementQueryInterface || $value instanceof ElementCollection) {
+                $elements = $this->nestedElements($value);
+                if ($columnsMode && $this->isNestedList($elements)) {
+                    foreach ($elements as $i => $nested) {
+                        $prefix = sprintf('%s[%d]', $label, $i + 1);
+                        $row += $this->nestedColumns($nested, $prefix, $settings, true);
+                    }
+                    continue;
+                }
+                $row[$label] = $this->formatElements($elements, $field, $settings);
                 continue;
             }
 
@@ -149,6 +158,29 @@ class Export extends Component
         return $fields;
     }
 
+    /**
+     * Merges a row's keys into the ordered column list, inserting new keys right
+     * after the key that preceded them in the row (keeps Matrix columns grouped).
+     *
+     * @param string[] $columns
+     * @param string[] $rowKeys
+     */
+    protected function mergeColumns(array &$columns, array $rowKeys): void
+    {
+        $previous = null;
+        foreach ($rowKeys as $key) {
+            if (!in_array($key, $columns, true)) {
+                $position = $previous !== null ? array_search($previous, $columns, true) : false;
+                if ($position === false) {
+                    $columns[] = $key;
+                } else {
+                    array_splice($columns, $position + 1, 0, [$key]);
+                }
+            }
+            $previous = $key;
+        }
+    }
+
     // -------------------------------------------------------------------------
 
     protected function settings(): Settings
@@ -201,9 +233,12 @@ class Export extends Component
     {
         $columns = [];
 
-        if ($withType && $nested instanceof Entry) {
-            $columns["$prefix.type"] = $nested->getType()->handle;
-            if ($nested->getType()->hasTitleField) {
+        if ($withType) {
+            $type = $this->nestedTypeHandle($nested);
+            if ($type !== null) {
+                $columns["$prefix.type"] = $type;
+            }
+            if ($this->nestedHasTitle($nested)) {
                 $columns["$prefix.title"] = (string)$nested->title;
             }
         }
@@ -263,31 +298,26 @@ class Export extends Component
             return (string)$value->value;
         }
 
-        // Matrix / Content Block (when not flattened to columns) and relation fields
+        // Matrix / Neo / Content Block (when not flattened to columns) and relation fields
         if ($value instanceof ElementQueryInterface || $value instanceof ElementCollection) {
-            $elements = $this->nestedElements($value);
-            if ($field instanceof MatrixField || $this->isNestedList($elements)) {
-                return $this->formatNestedList($elements, $settings);
-            }
-            return implode($settings->multiValueSeparator, array_map(fn($el) => $this->elementLabel($el), $elements));
+            return $this->formatElements($this->nestedElements($value), $field, $settings);
         }
 
         if ($value instanceof ElementInterface) {
-            if ($field instanceof ContentBlockField) {
+            if ($field instanceof ContentBlockField || $value instanceof NestedElementInterface) {
                 return $this->formatNestedList([$value], $settings);
             }
             return $this->elementLabel($value);
         }
 
-        if (is_array($value) || $value instanceof Traversable) {
-            return Json::encode($value instanceof Traversable ? iterator_to_array($value) : $value);
-        }
-
+        // Rich text (CKEditor, Redactor, Vizy…) and other stringable objects
         if (is_object($value) && method_exists($value, '__toString')) {
             $value = (string)$value;
-        }
-
-        if (is_object($value)) {
+        } elseif (is_object($value) && method_exists($value, 'renderHtml')) {
+            $value = (string)$value->renderHtml();
+        } elseif (is_array($value) || $value instanceof Traversable) {
+            return Json::encode($value instanceof Traversable ? iterator_to_array($value, false) : $value);
+        } elseif (is_object($value)) {
             return Json::encode($value);
         }
 
@@ -325,7 +355,41 @@ class Export extends Component
     protected function isNestedList(array $elements): bool
     {
         $first = $elements[0] ?? null;
-        return $first instanceof Entry && $first->getOwnerId() !== null;
+        return $first instanceof NestedElementInterface && $first->getOwnerId() !== null;
+    }
+
+    /**
+     * Formats a list of elements: nested elements as blocks, relations as labels.
+     *
+     * @param ElementInterface[] $elements
+     */
+    protected function formatElements(array $elements, ?FieldInterface $field, Settings $settings): string
+    {
+        if ($field instanceof MatrixField || $this->isNestedList($elements)) {
+            return $this->formatNestedList($elements, $settings);
+        }
+        return implode($settings->multiValueSeparator, array_map(fn($el) => $this->elementLabel($el), $elements));
+    }
+
+    protected function nestedTypeHandle(ElementInterface $nested): ?string
+    {
+        if (!method_exists($nested, 'getType')) {
+            return null;
+        }
+        try {
+            $type = $nested->getType();
+        } catch (\Throwable) {
+            return null;
+        }
+        return is_object($type) && isset($type->handle) ? (string)$type->handle : null;
+    }
+
+    protected function nestedHasTitle(ElementInterface $nested): bool
+    {
+        if ($nested instanceof Entry) {
+            return $nested->getType()->hasTitleField;
+        }
+        return isset($nested->title) && $nested->title !== '';
     }
 
     /**
@@ -337,11 +401,12 @@ class Export extends Component
             $data = [];
             foreach ($elements as $el) {
                 $item = [];
-                if ($el instanceof Entry) {
-                    $item['type'] = $el->getType()->handle;
-                    if ($el->getType()->hasTitleField) {
-                        $item['title'] = (string)$el->title;
-                    }
+                $type = $this->nestedTypeHandle($el);
+                if ($type !== null) {
+                    $item['type'] = $type;
+                }
+                if ($this->nestedHasTitle($el)) {
+                    $item['title'] = (string)$el->title;
                 }
                 foreach ($this->customFields($el) as $field) {
                     $item[$field->handle] = $this->formatValue($el->getFieldValue($field->handle), $field, $settings);
@@ -355,7 +420,7 @@ class Export extends Component
         $blocks = [];
         foreach ($elements as $el) {
             $lines = [];
-            if ($el instanceof Entry && $el->getType()->hasTitleField && $el->title !== null && $el->title !== '') {
+            if ($this->nestedHasTitle($el) && $el->title !== null && $el->title !== '') {
                 $lines[] = (string)$el->title;
             }
             foreach ($this->customFields($el) as $field) {
