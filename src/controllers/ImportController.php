@@ -89,7 +89,7 @@ class ImportController extends Controller
         $this->requirePostRequest();
 
         $utilityUrl = UrlHelper::cpUrl('utilities/' . CsvImportUtility::id());
-        $token = (string)$this->request->getRequiredBodyParam('token');
+        $token = (string)$this->request->getRequiredBodyParam('planToken');
         $import = Plugin::getInstance()->import;
 
         $plan = $import->loadPlan($token);

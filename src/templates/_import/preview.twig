@@ -89,7 +89,7 @@
     <form method="post" accept-charset="UTF-8">
         {{ csrfInput() }}
         {{ actionInput('csv-export/import/apply') }}
-        {{ hiddenInput('token', plan.token) }}
+        {{ hiddenInput('planToken', plan.token) }}
         <div class="buttons">
             {% if totalChanges > 0 %}
                 <button type="submit" class="btn submit">{{ 'Import {count} translations'|t('csv-export', { count: totalChanges }) }}</button>
