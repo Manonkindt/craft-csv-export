@@ -84,9 +84,11 @@ class Plugin extends BasePlugin
             }
         );
 
-        // "Import translations…" button next to "Export…" on the entries index
+        // "Import translations…" button next to "Export…" on the entries index.
+        // The JS decides whether the page is an entries index (CP URLs can be
+        // rewritten by plugins such as CP Nav), so register on every CP page.
         $request = Craft::$app->getRequest();
-        if ($request->getIsCpRequest() && !$request->getIsConsoleRequest() && $request->getSegment(1) === 'entries') {
+        if ($request->getIsCpRequest() && !$request->getIsConsoleRequest() && !$request->getIsActionRequest()) {
             Event::on(
                 View::class,
                 View::EVENT_BEFORE_RENDER_PAGE_TEMPLATE,
