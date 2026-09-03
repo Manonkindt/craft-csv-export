@@ -1,0 +1,60 @@
+{
+    "name": "manonkindt/craft-csv-export",
+    "description": "Export Craft CMS entries to a flat, Excel-friendly CSV file. One column per field, Matrix blocks flattened.",
+    "type": "craft-plugin",
+    "version": "1.0.0",
+    "keywords": [
+        "craft",
+        "cms",
+        "craftcms",
+        "craft-plugin",
+        "csv",
+        "export",
+        "excel",
+        "entries"
+    ],
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Manon Kindt",
+            "homepage": "https://github.com/Manonkindt"
+        }
+    ],
+    "support": {
+        "docs": "https://github.com/Manonkindt/craft-csv-export/blob/main/README.md",
+        "issues": "https://github.com/Manonkindt/craft-csv-export/issues",
+        "source": "https://github.com/Manonkindt/craft-csv-export"
+    },
+    "require": {
+        "php": "^8.2",
+        "craftcms/cms": "^5.0.0"
+    },
+    "minimum-stability": "dev",
+    "prefer-stable": true,
+    "autoload": {
+        "psr-4": {
+            "manonkindt\\csvexport\\": "src/"
+        }
+    },
+    "config": {
+        "platform": {
+            "php": "8.2"
+        },
+        "allow-plugins": {
+            "yiisoft/yii2-composer": true,
+            "craftcms/plugin-installer": true
+        }
+    },
+    "extra": {
+        "name": "CSV Export",
+        "handle": "csv-export",
+        "developer": "Manon Kindt",
+        "developerUrl": "https://github.com/Manonkindt",
+        "documentationUrl": "https://github.com/Manonkindt/craft-csv-export/blob/main/README.md",
+        "changelogUrl": "https://raw.githubusercontent.com/Manonkindt/craft-csv-export/main/CHANGELOG.md",
+        "class": "manonkindt\\csvexport\\Plugin",
+        "schemaVersion": "1.0.0",
+        "hasCpSettings": true,
+        "hasCpSection": false
+    }
+}

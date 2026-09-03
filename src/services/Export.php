@@ -1,0 +1,411 @@
+<?php
+
+namespace manonkindt\csvexport\services;
+
+use Craft;
+use craft\base\Component;
+use craft\base\ElementInterface;
+use craft\base\FieldInterface;
+use craft\elements\Asset;
+use craft\elements\db\ElementQueryInterface;
+use craft\elements\ElementCollection;
+use craft\elements\Entry;
+use craft\elements\User;
+use craft\fields\ContentBlock as ContentBlockField;
+use craft\fields\data\ColorData;
+use craft\fields\data\LinkData;
+use craft\fields\data\MultiOptionsFieldData;
+use craft\fields\data\OptionData;
+use craft\fields\Matrix as MatrixField;
+use craft\helpers\Json;
+use craft\helpers\MoneyHelper;
+use DateTimeInterface;
+use manonkindt\csvexport\models\Settings;
+use manonkindt\csvexport\Plugin;
+use Money\Money;
+use Traversable;
+
+/**
+ * Builds flat rows (one per entry, one column per field) and writes CSV.
+ */
+class Export extends Component
+{
+    /**
+     * Builds a normalized table for the given entries.
+     *
+     * @param iterable<Entry> $entries
+     * @param string[]|null $fieldHandles Custom field handles to include (null = all fields in the layout)
+     * @return array{0: string[], 1: array<int, array<string, string>>} [$columns, $rows]
+     */
+    public function buildTable(iterable $entries, ?array $fieldHandles = null): array
+    {
+        $settings = $this->settings();
+        $columns = [];
+        $rows = [];
+
+        foreach ($entries as $entry) {
+            $row = $this->buildRow($entry, $fieldHandles, $settings);
+            $this->mergeColumns($columns, array_keys($row));
+            $rows[] = $row;
+        }
+
+        // Make every row uniform and in column order
+        foreach ($rows as &$row) {
+            $normalized = [];
+            foreach ($columns as $column) {
+                $normalized[$column] = $row[$column] ?? '';
+            }
+            $row = $normalized;
+        }
+        unset($row);
+
+        return [$columns, $rows];
+    }
+
+    /**
+     * Builds a single flat row for an entry.
+     *
+     * @return array<string, string>
+     */
+    public function buildRow(Entry $entry, ?array $fieldHandles, ?Settings $settings = null): array
+    {
+        $settings ??= $this->settings();
+        $row = [];
+
+        foreach ($settings->metaColumns as $attribute) {
+            $row[$attribute] = $this->metaValue($entry, $attribute, $settings);
+        }
+
+        foreach ($this->customFields($entry) as $field) {
+            if ($fieldHandles !== null && !in_array($field->handle, $fieldHandles, true)) {
+                continue;
+            }
+            $label = $this->columnLabel($field, $settings);
+            $value = $entry->getFieldValue($field->handle);
+
+            if ($field instanceof MatrixField && $settings->matrixMode === Settings::MATRIX_MODE_COLUMNS) {
+                foreach ($this->nestedElements($value) as $i => $nested) {
+                    $prefix = sprintf('%s[%d]', $label, $i + 1);
+                    $row += $this->nestedColumns($nested, $prefix, $settings, true);
+                }
+                continue;
+            }
+
+            if ($field instanceof ContentBlockField && $value instanceof ElementInterface && $settings->matrixMode === Settings::MATRIX_MODE_COLUMNS) {
+                $row += $this->nestedColumns($value, $label, $settings, false);
+                continue;
+            }
+
+            $row[$label] = $this->formatValue($value, $field, $settings);
+        }
+
+        return $row;
+    }
+
+    /**
+     * Writes a table to a CSV string, honouring the plugin settings.
+     *
+     * @param string[] $columns
+     * @param array<int, array<string, string>> $rows
+     */
+    public function toCsv(array $columns, array $rows, ?string $delimiter = null, ?bool $bom = null): string
+    {
+        $settings = $this->settings();
+        $delimiter ??= $settings->getDelimiterChar();
+        $bom ??= $settings->includeBom;
+
+        $fh = fopen('php://temp', 'w+');
+        if ($bom) {
+            fwrite($fh, "\xEF\xBB\xBF");
+        }
+        fputcsv($fh, array_map([$this, 'guardCell'], $columns), $delimiter, '"', '');
+        foreach ($rows as $row) {
+            fputcsv($fh, array_map([$this, 'guardCell'], array_values($row)), $delimiter, '"', '');
+        }
+        rewind($fh);
+        $csv = stream_get_contents($fh);
+        fclose($fh);
+
+        return $csv;
+    }
+
+    /**
+     * Returns the custom fields available for a section (union of all its entry types' layouts).
+     *
+     * @return array<string, string> handle => name
+     */
+    public function fieldsForSection(string $sectionHandle): array
+    {
+        $section = Craft::$app->getEntries()->getSectionByHandle($sectionHandle);
+        if (!$section) {
+            return [];
+        }
+        $fields = [];
+        foreach ($section->getEntryTypes() as $entryType) {
+            foreach ($entryType->getFieldLayout()->getCustomFields() as $field) {
+                $fields[$field->handle] = $field->name;
+            }
+        }
+        return $fields;
+    }
+
+    // -------------------------------------------------------------------------
+
+    protected function settings(): Settings
+    {
+        return Plugin::getInstance()->getSettings();
+    }
+
+    /**
+     * @return FieldInterface[]
+     */
+    protected function customFields(ElementInterface $element): array
+    {
+        $layout = $element->getFieldLayout();
+        return $layout ? $layout->getCustomFields() : [];
+    }
+
+    protected function columnLabel(FieldInterface $field, Settings $settings): string
+    {
+        return $settings->columnLabels === Settings::LABELS_NAME ? $field->name : $field->handle;
+    }
+
+    protected function metaValue(Entry $entry, string $attribute, Settings $settings): string
+    {
+        return match ($attribute) {
+            'id' => (string)$entry->id,
+            'uid' => (string)$entry->uid,
+            'title' => (string)$entry->title,
+            'slug' => (string)$entry->slug,
+            'uri' => (string)$entry->uri,
+            'url' => (string)$entry->getUrl(),
+            'section' => (string)($entry->getSection()?->handle ?? ''),
+            'type' => $entry->getType()->handle,
+            'site' => $entry->getSite()->handle,
+            'status' => (string)$entry->getStatus(),
+            'author' => (string)($entry->getAuthor()?->email ?? ''),
+            'postDate' => $this->formatDate($entry->postDate, $settings),
+            'expiryDate' => $this->formatDate($entry->expiryDate, $settings),
+            'dateCreated' => $this->formatDate($entry->dateCreated, $settings),
+            'dateUpdated' => $this->formatDate($entry->dateUpdated, $settings),
+            default => '',
+        };
+    }
+
+    /**
+     * Flattens one nested element (Matrix entry / Content Block) into prefixed columns.
+     *
+     * @return array<string, string>
+     */
+    protected function nestedColumns(ElementInterface $nested, string $prefix, Settings $settings, bool $withType): array
+    {
+        $columns = [];
+
+        if ($withType && $nested instanceof Entry) {
+            $columns["$prefix.type"] = $nested->getType()->handle;
+            if ($nested->getType()->hasTitleField) {
+                $columns["$prefix.title"] = (string)$nested->title;
+            }
+        }
+
+        foreach ($this->customFields($nested) as $field) {
+            $label = $this->columnLabel($field, $settings);
+            // Nested Matrix inside Matrix: fall back to readable text to keep the table sane
+            $columns["$prefix.$label"] = $this->formatValue($nested->getFieldValue($field->handle), $field, $settings);
+        }
+
+        return $columns;
+    }
+
+    /**
+     * Converts any field value to a single string cell.
+     */
+    public function formatValue(mixed $value, ?FieldInterface $field, ?Settings $settings = null): string
+    {
+        $settings ??= $this->settings();
+
+        if ($value === null) {
+            return '';
+        }
+
+        if (is_bool($value)) {
+            return $value ? '1' : '0';
+        }
+
+        if ($value instanceof DateTimeInterface) {
+            return $this->formatDate($value, $settings);
+        }
+
+        if ($value instanceof Money) {
+            return (string)MoneyHelper::toDecimal($value);
+        }
+
+        if ($value instanceof LinkData) {
+            return $value->getUrl();
+        }
+
+        if ($value instanceof ColorData) {
+            return $value->getHex();
+        }
+
+        if ($value instanceof MultiOptionsFieldData) {
+            $selected = [];
+            foreach ($value as $option) {
+                /** @var OptionData $option */
+                if ($option->selected) {
+                    $selected[] = (string)$option->value;
+                }
+            }
+            return implode($settings->multiValueSeparator, $selected);
+        }
+
+        if ($value instanceof OptionData) {
+            return (string)$value->value;
+        }
+
+        // Matrix / Content Block (when not flattened to columns) and relation fields
+        if ($value instanceof ElementQueryInterface || $value instanceof ElementCollection) {
+            $elements = $this->nestedElements($value);
+            if ($field instanceof MatrixField || $this->isNestedList($elements)) {
+                return $this->formatNestedList($elements, $settings);
+            }
+            return implode($settings->multiValueSeparator, array_map(fn($el) => $this->elementLabel($el), $elements));
+        }
+
+        if ($value instanceof ElementInterface) {
+            if ($field instanceof ContentBlockField) {
+                return $this->formatNestedList([$value], $settings);
+            }
+            return $this->elementLabel($value);
+        }
+
+        if (is_array($value) || $value instanceof Traversable) {
+            return Json::encode($value instanceof Traversable ? iterator_to_array($value) : $value);
+        }
+
+        if (is_object($value) && method_exists($value, '__toString')) {
+            $value = (string)$value;
+        }
+
+        if (is_object($value)) {
+            return Json::encode($value);
+        }
+
+        $string = (string)$value;
+
+        if ($settings->stripHtml) {
+            $string = trim(html_entity_decode(strip_tags($string), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+        }
+
+        return $string;
+    }
+
+    /**
+     * @return ElementInterface[]
+     */
+    protected function nestedElements(mixed $value): array
+    {
+        if ($value instanceof ElementQueryInterface) {
+            return $value->all();
+        }
+        if ($value instanceof ElementCollection) {
+            return $value->all();
+        }
+        if ($value instanceof ElementInterface) {
+            return [$value];
+        }
+        return [];
+    }
+
+    /**
+     * True when the elements are nested (owned) elements rather than plain relations.
+     *
+     * @param ElementInterface[] $elements
+     */
+    protected function isNestedList(array $elements): bool
+    {
+        $first = $elements[0] ?? null;
+        return $first instanceof Entry && $first->getOwnerId() !== null;
+    }
+
+    /**
+     * @param ElementInterface[] $elements
+     */
+    protected function formatNestedList(array $elements, Settings $settings): string
+    {
+        if ($settings->matrixMode === Settings::MATRIX_MODE_JSON) {
+            $data = [];
+            foreach ($elements as $el) {
+                $item = [];
+                if ($el instanceof Entry) {
+                    $item['type'] = $el->getType()->handle;
+                    if ($el->getType()->hasTitleField) {
+                        $item['title'] = (string)$el->title;
+                    }
+                }
+                foreach ($this->customFields($el) as $field) {
+                    $item[$field->handle] = $this->formatValue($el->getFieldValue($field->handle), $field, $settings);
+                }
+                $data[] = $item;
+            }
+            return Json::encode($data);
+        }
+
+        // Readable text (also used as fallback for nested Matrix inside Matrix in columns mode)
+        $blocks = [];
+        foreach ($elements as $el) {
+            $lines = [];
+            if ($el instanceof Entry && $el->getType()->hasTitleField && $el->title !== null && $el->title !== '') {
+                $lines[] = (string)$el->title;
+            }
+            foreach ($this->customFields($el) as $field) {
+                $formatted = $this->formatValue($el->getFieldValue($field->handle), $field, $settings);
+                if ($formatted === '') {
+                    continue;
+                }
+                $lines[] = sprintf('%s: %s', $this->columnLabel($field, $settings), $formatted);
+            }
+            if ($lines) {
+                $blocks[] = implode("\n", $lines);
+            }
+        }
+        return implode("\n\n", $blocks);
+    }
+
+    protected function elementLabel(ElementInterface $element): string
+    {
+        if ($element instanceof Asset) {
+            return (string)($element->getUrl() ?: $element->getFilename());
+        }
+        if ($element instanceof User) {
+            return (string)$element->email;
+        }
+        $title = $element->title ?? null;
+        if ($title !== null && $title !== '') {
+            return (string)$title;
+        }
+        try {
+            $string = (string)$element;
+        } catch (\Throwable) {
+            $string = '';
+        }
+        return $string !== '' ? $string : (string)$element->id;
+    }
+
+    protected function formatDate(?DateTimeInterface $date, Settings $settings): string
+    {
+        return $date ? $date->format($settings->dateFormat) : '';
+    }
+
+    /**
+     * Guards against CSV/formula injection when the file is opened in a spreadsheet.
+     */
+    protected function guardCell(mixed $cell): string
+    {
+        $cell = (string)$cell;
+        if ($cell !== '' && in_array($cell[0], ['=', '-', '+', '@'], true)) {
+            return "\t" . $cell;
+        }
+        return $cell;
+    }
+}

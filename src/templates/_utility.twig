@@ -1,0 +1,130 @@
+{% import '_includes/forms.twig' as forms %}
+
+{% set id = 'csv-export-utility' %}
+
+<form id="{{ id }}" method="post" action="{{ actionUrl('csv-export/export/download') }}" accept-charset="UTF-8">
+    {{ csrfInput() }}
+
+    <p>{{ 'Download a CSV file with one row per entry and one column per field. Pick a section, then choose which fields to include.'|t('csv-export') }}</p>
+
+    {% if sections is empty %}
+        <p class="warning with-icon">{{ 'There are no sections yet.'|t('csv-export') }}</p>
+    {% else %}
+
+    {{ forms.selectField({
+        label: 'Section'|t('app'),
+        id: 'section',
+        name: 'section',
+        options: sections,
+        required: true,
+    }) }}
+
+    {% if sites|length > 1 %}
+        {{ forms.selectField({
+            label: 'Site'|t('app'),
+            id: 'site',
+            name: 'site',
+            options: sites,
+        }) }}
+    {% else %}
+        {{ hiddenInput('site', sites[0].value ?? '') }}
+    {% endif %}
+
+    {{ forms.selectField({
+        label: 'Status'|t('app'),
+        id: 'status',
+        name: 'status',
+        options: [
+            { label: 'Live'|t('app'), value: 'live' },
+            { label: 'Pending'|t('app'), value: 'pending' },
+            { label: 'Expired'|t('app'), value: 'expired' },
+            { label: 'Disabled'|t('app'), value: 'disabled' },
+            { label: 'All statuses'|t('csv-export'), value: 'all' },
+        ],
+        value: 'all',
+    }) }}
+
+    {{ forms.field({
+        label: 'Fields'|t('app'),
+        instructions: 'Leave everything unchecked to export all fields.'|t('csv-export'),
+        id: 'fields',
+    }, '<div id="csv-export-fields" class="checkbox-group"><p class="light">' ~ 'Loading…'|t('app') ~ '</p></div>') }}
+
+    <div class="flex">
+        {{ forms.selectField({
+            label: 'Delimiter'|t('csv-export'),
+            id: 'delimiter',
+            name: 'delimiter',
+            options: settings.delimiterOptions(),
+            value: settings.delimiter,
+        }) }}
+
+        {{ forms.textField({
+            label: 'Limit'|t('app'),
+            instructions: '0 = no limit'|t('csv-export'),
+            id: 'limit',
+            name: 'limit',
+            type: 'number',
+            value: 0,
+            size: 6,
+        }) }}
+    </div>
+
+    <div class="buttons">
+        <button type="submit" class="btn submit">{{ 'Download CSV'|t('csv-export') }}</button>
+    </div>
+
+    {% endif %}
+</form>
+
+{% js %}
+(function () {
+    var form = document.getElementById('{{ id }}');
+    if (!form) return;
+    var sectionSelect = form.querySelector('select[name="section"]');
+    var container = document.getElementById('csv-export-fields');
+    var fieldsUrl = {{ actionUrl('csv-export/export/fields')|json_encode|raw }};
+    var loadingText = {{ 'Loading…'|t('app')|json_encode|raw }};
+    var emptyText = {{ 'This section has no custom fields.'|t('csv-export')|json_encode|raw }};
+
+    function render(fields) {
+        container.innerHTML = '';
+        if (!fields.length) {
+            var p = document.createElement('p');
+            p.className = 'light';
+            p.textContent = emptyText;
+            container.appendChild(p);
+            return;
+        }
+        fields.forEach(function (field, i) {
+            var wrapper = document.createElement('div');
+            var input = document.createElement('input');
+            input.type = 'checkbox';
+            input.className = 'checkbox';
+            input.name = 'fields[]';
+            input.value = field.handle;
+            input.id = 'csv-export-field-' + i;
+            var label = document.createElement('label');
+            label.setAttribute('for', input.id);
+            label.textContent = field.name + ' ';
+            var code = document.createElement('code');
+            code.className = 'light';
+            code.textContent = field.handle;
+            label.appendChild(code);
+            wrapper.appendChild(input);
+            wrapper.appendChild(label);
+            container.appendChild(wrapper);
+        });
+    }
+
+    function load() {
+        container.innerHTML = '<p class="light">' + loadingText + '</p>';
+        Craft.sendActionRequest('POST', fieldsUrl, { data: { section: sectionSelect.value } })
+            .then(function (response) { render(response.data.fields || []); })
+            .catch(function () { render([]); });
+    }
+
+    sectionSelect.addEventListener('change', load);
+    load();
+})();
+{% endjs %}

@@ -1,0 +1,84 @@
+{% import '_includes/forms.twig' as forms %}
+
+{{ forms.selectField({
+    label: 'Delimiter'|t('csv-export'),
+    instructions: 'Used by the utility download and the console command. The “Export…” dialog on the entries index always uses Craft’s own CSV writer (comma).'|t('csv-export'),
+    id: 'delimiter',
+    name: 'delimiter',
+    options: settings.delimiterOptions(),
+    value: settings.delimiter,
+    errors: settings.getErrors('delimiter'),
+}) }}
+
+{{ forms.lightswitchField({
+    label: 'Include UTF-8 BOM'|t('csv-export'),
+    instructions: 'Recommended when the file will be opened in Excel, so accents and special characters display correctly.'|t('csv-export'),
+    id: 'includeBom',
+    name: 'includeBom',
+    on: settings.includeBom,
+    errors: settings.getErrors('includeBom'),
+}) }}
+
+<hr>
+
+{{ forms.selectField({
+    label: 'Column labels'|t('csv-export'),
+    id: 'columnLabels',
+    name: 'columnLabels',
+    options: settings.columnLabelOptions(),
+    value: settings.columnLabels,
+    errors: settings.getErrors('columnLabels'),
+}) }}
+
+{{ forms.checkboxSelectField({
+    label: 'Entry attributes'|t('csv-export'),
+    instructions: 'Attributes exported as the first columns, before the custom fields.'|t('csv-export'),
+    id: 'metaColumns',
+    name: 'metaColumns',
+    options: settings.availableMetaColumns(),
+    values: settings.metaColumns,
+    errors: settings.getErrors('metaColumns'),
+}) }}
+
+{{ forms.selectField({
+    label: 'Matrix fields'|t('csv-export'),
+    instructions: 'How Matrix and Content Block fields are flattened into the CSV.'|t('csv-export'),
+    id: 'matrixMode',
+    name: 'matrixMode',
+    options: settings.matrixModeOptions(),
+    value: settings.matrixMode,
+    errors: settings.getErrors('matrixMode'),
+}) }}
+
+<hr>
+
+{{ forms.textField({
+    label: 'Date format'|t('csv-export'),
+    instructions: 'A [PHP date format]({url}).'|t('csv-export', { url: 'https://www.php.net/manual/en/datetime.format.php' }),
+    id: 'dateFormat',
+    name: 'dateFormat',
+    value: settings.dateFormat,
+    size: 20,
+    class: 'code',
+    errors: settings.getErrors('dateFormat'),
+}) }}
+
+{{ forms.textField({
+    label: 'Multi-value separator'|t('csv-export'),
+    instructions: 'Placed between multiple related entries, assets, categories or checkbox options in one cell.'|t('csv-export'),
+    id: 'multiValueSeparator',
+    name: 'multiValueSeparator',
+    value: settings.multiValueSeparator,
+    size: 10,
+    class: 'code',
+    errors: settings.getErrors('multiValueSeparator'),
+}) }}
+
+{{ forms.lightswitchField({
+    label: 'Strip HTML'|t('csv-export'),
+    instructions: 'Remove HTML tags from rich text fields.'|t('csv-export'),
+    id: 'stripHtml',
+    name: 'stripHtml',
+    on: settings.stripHtml,
+    errors: settings.getErrors('stripHtml'),
+}) }}

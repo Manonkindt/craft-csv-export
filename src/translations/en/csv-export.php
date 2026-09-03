@@ -1,0 +1,28 @@
+<?php
+
+return [
+    'CSV Export' => 'CSV Export',
+    'Flat (one column per field)' => 'Flat (one column per field)',
+    'Delimiter' => 'Delimiter',
+    'Semicolon (;) — Excel in most European locales' => 'Semicolon (;) — Excel in most European locales',
+    'Comma (,)' => 'Comma (,)',
+    'Tab' => 'Tab',
+    'One column per nested field (e.g. data[1].answer)' => 'One column per nested field (e.g. data[1].answer)',
+    'Readable text in one cell' => 'Readable text in one cell',
+    'JSON in one cell' => 'JSON in one cell',
+    'Field handle (best for re-importing)' => 'Field handle (best for re-importing)',
+    'Field name (best for humans)' => 'Field name (best for humans)',
+    'Include UTF-8 BOM' => 'Include UTF-8 BOM',
+    'Column labels' => 'Column labels',
+    'Entry attributes' => 'Entry attributes',
+    'Matrix fields' => 'Matrix fields',
+    'Date format' => 'Date format',
+    'Multi-value separator' => 'Multi-value separator',
+    'Strip HTML' => 'Strip HTML',
+    'All statuses' => 'All statuses',
+    'Download CSV' => 'Download CSV',
+    'Leave everything unchecked to export all fields.' => 'Leave everything unchecked to export all fields.',
+    'This section has no custom fields.' => 'This section has no custom fields.',
+    'There are no sections yet.' => 'There are no sections yet.',
+    '0 = no limit' => '0 = no limit',
+];
