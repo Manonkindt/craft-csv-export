@@ -6,7 +6,7 @@
  *
  * @link      https://github.com/Manonkindt/craft-csv-export
  * @copyright Copyright (c) 2026 Manon Kindt
- * @license   MIT
+ * @license   https://craftcms.github.io/license/ Craft License
  */
 
 namespace manonkindt\csvexport;

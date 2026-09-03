@@ -79,4 +79,4 @@ Under **Settings → Plugins → CSV Export**:
 
 ## License
 
-MIT © Manon Kindt
+This plugin is licensed for sale in the Craft Plugin Store under the [Craft License](https://craftcms.github.io/license/). Copyright © 2026 Manon Kindt.
