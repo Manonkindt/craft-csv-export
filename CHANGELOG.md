@@ -1,4 +1,4 @@
-# Release Notes for CSV Export
+# Release Notes for Translation CSV Export
 
 ## 1.0.0 - 2026-09-03
 

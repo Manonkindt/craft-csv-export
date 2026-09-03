@@ -43,7 +43,7 @@ class TranslationWorkbookExporter extends ElementExporter
         $export = Plugin::getInstance()->export;
         $spreadsheet = new Spreadsheet();
         $spreadsheet->getProperties()
-            ->setCreator('CSV Export for Craft CMS')
+            ->setCreator('Translation CSV Export for Craft CMS')
             ->setTitle(Craft::t('csv-export', 'Translations'));
 
         $this->writeReadMe($spreadsheet->getActiveSheet(), $sourceSite, $sites);

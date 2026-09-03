@@ -1,4 +1,4 @@
-# CSV Export for Craft CMS
+# Translation CSV Export for Craft CMS
 
 **A simple translation workflow for Craft CMS.** Export your content to a clean, Excel-friendly file, send it to your translator or edit it yourself, and safely import the completed translations back into Craft. On the side, it also gives you a flat, one-column-per-field CSV export of any entries, handy for pulling form submissions into Excel.
 
@@ -12,7 +12,7 @@ The plugin is built for **translating existing content**. It only exports what c
 
 ## Installation
 
-From the Plugin Store, search for **CSV Export** and click *Install*. Or with Composer:
+From the Plugin Store, search for **Translation CSV Export** and click *Install*. Or with Composer:
 
 ```bash
 composer require manonkindt/craft-csv-export

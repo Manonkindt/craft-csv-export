@@ -1,8 +1,8 @@
 <?php
 /**
- * CSV Export plugin for Craft CMS 5.x
+ * Translation CSV Export plugin for Craft CMS 5.x
  *
- * Export entries to a flat, Excel-friendly CSV file.
+ * Export translatable content to Excel, import translations safely, and export flat CSV files.
  *
  * @link      https://github.com/Manonkindt/craft-csv-export
  * @copyright Copyright (c) 2026 Manon Kindt

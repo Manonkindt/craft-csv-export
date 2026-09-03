@@ -1,6 +1,6 @@
 {
     "name": "manonkindt/craft-csv-export",
-    "description": "Export Craft CMS entries to a flat, Excel-friendly CSV file. One column per field, Matrix blocks flattened.",
+    "description": "A simple translation workflow for Craft CMS: export translatable content to Excel, import the translations safely. Plus a flat, one-column-per-field CSV export.",
     "type": "craft-plugin",
     "version": "1.0.0",
     "keywords": [
@@ -46,7 +46,7 @@
         }
     },
     "extra": {
-        "name": "CSV Export",
+        "name": "Translation CSV Export",
         "handle": "csv-export",
         "developer": "Manon Kindt",
         "developerUrl": "https://github.com/Manonkindt",
