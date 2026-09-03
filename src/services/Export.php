@@ -25,6 +25,7 @@ use manonkindt\csvexport\models\Settings;
 use manonkindt\csvexport\Plugin;
 use Money\Money;
 use Traversable;
+use yii\base\Arrayable;
 
 /**
  * Builds flat rows (one per entry, one column per field) and writes CSV.
@@ -315,8 +316,10 @@ class Export extends Component
             $value = (string)$value;
         } elseif (is_object($value) && method_exists($value, 'renderHtml')) {
             $value = (string)$value->renderHtml();
+        } elseif ($value instanceof Arrayable) {
+            return Json::encode($value->toArray());
         } elseif (is_array($value) || $value instanceof Traversable) {
-            return Json::encode($value instanceof Traversable ? iterator_to_array($value, false) : $value);
+            return Json::encode($value instanceof Traversable ? iterator_to_array($value) : $value);
         } elseif (is_object($value)) {
             return Json::encode($value);
         }
