@@ -122,13 +122,18 @@ class Export extends Component
             if ($fieldHandles !== null && !in_array($field->handle, $fieldHandles, true)) {
                 continue;
             }
-            if ($translation && !$field->getIsTranslatable($entry)) {
-                continue;
-            }
-
             $label = $translation ? $field->handle : $this->columnLabel($field, $settings);
             $value = $entry->getFieldValue($field->handle);
             $columnsMode = $translation || $settings->matrixMode === Settings::MATRIX_MODE_COLUMNS;
+
+            // In translation mode, nested elements (Matrix, Neo, Content Block) are always
+            // descended into: their own fields decide what is translatable. Other fields
+            // must be translatable themselves.
+            $isNestedValue = $value instanceof ElementInterface
+                || (($value instanceof ElementQueryInterface || $value instanceof ElementCollection) && $this->isNestedList($this->nestedElements($value)));
+            if ($translation && !$isNestedValue && !$field->getIsTranslatable($entry)) {
+                continue;
+            }
 
             // Content Block: a single nested element
             if ($columnsMode && $field instanceof ContentBlockField && $value instanceof ElementInterface) {
