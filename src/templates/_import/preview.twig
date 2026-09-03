@@ -86,9 +86,10 @@
         {% endif %}
     {% endfor %}
 
-    <form method="post" accept-charset="UTF-8">
+    {# Explicit action URL: this page itself is served from the preview action URL,
+       and Craft resolves the action from the URL path before the "action" body param. #}
+    <form method="post" action="{{ actionUrl('csv-export/import/apply') }}" accept-charset="UTF-8">
         {{ csrfInput() }}
-        {{ actionInput('csv-export/import/apply') }}
         {{ hiddenInput('planToken', plan.token) }}
         <div class="buttons">
             {% if totalChanges > 0 %}
